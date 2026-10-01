@@ -570,3 +570,10 @@ input.switch:checked::after { transform: translateX(20px); }
 .swatches span { display: block; width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; }
 .swatches input:checked + span { border-color: var(--ink); box-shadow: inset 0 0 0 2px var(--surface); }
 .swatches input:focus-visible + span { outline: 3px solid var(--blue); outline-offset: 2px; }
+
+/* Version 7 : espèces */
+.hero.cash { background: #3D5A3A; }
+@media (prefers-color-scheme: dark) { .hero.cash { background: #2A4228; } }
+.hero-meta.trio { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.hero-meta.trio strong { font-size: 15px; }
+.mini-card + .mini-card { margin-top: -18px; }

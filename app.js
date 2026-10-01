@@ -67,6 +67,7 @@ const FEATURES = [
   ['semaine', 'Budgets de la semaine', "Ce qu'il te reste par catégorie cette semaine"],
   ['conseils', 'Conseils', 'Des conseils calculés sur ton téléphone'],
   ['livret', 'Carte Livret A', "Le montant de ton livret sur l'accueil"],
+  ['especes', 'Carte Espèces', "L'argent liquide que tu as sur toi"],
   ['resume', 'Résumé et graphique', 'Entrées, sorties et dépenses par catégorie'],
   ['rappel', 'Rappel de sauvegarde', 'Te propose d\'exporter tes données chaque mois'],
 ];
@@ -163,12 +164,12 @@ const fmtInput = n => (n === null || n === undefined || n === '') ? '' : Number(
    3. Données (stockées uniquement sur l'appareil)
    Le nom de rangement ne change pas : tes données sont gardées.
    ===================================================== */
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 const KEY = 'mon-budget-v1';
 const defaultSettings = () => ({
   cycleDay: 1,        // jour de début du cycle (jour du salaire)
   margin: 50,         // marge de sécurité à garder sur le compte
-  features: { planEpargne: true, semaine: true, conseils: true, livret: true, resume: true, rappel: true },
+  features: { planEpargne: true, semaine: true, especes: true, conseils: true, livret: true, resume: true, rappel: true },
   tipsOff: [],
 });
 const defaultState = () => ({
@@ -180,6 +181,7 @@ const defaultState = () => ({
   transactions: [],   // {id, type, amount, label, cat, date, planId?, occ?}
   plans: [],          // {id, type, amount, label, cat, freq:'mois'|'unique', day, date, source, auto, since, lastDone, added}
   savings: { startBalance: null, ops: [] },
+  cash: { startBalance: null, transfers: [] }, // espèces ; transfers: {id, kind:'retrait'|'depot', amount, date, label}
   settings: defaultSettings(),
   lastExport: null,
 });
@@ -189,6 +191,8 @@ function normalize(d) {
   const s = Object.assign(defaultState(), d);
   s.savings = Object.assign({ startBalance: null, ops: [] }, d && d.savings);
   if (!Array.isArray(s.savings.ops)) s.savings.ops = [];
+  s.cash = Object.assign({ startBalance: null, transfers: [] }, d && d.cash);
+  if (!Array.isArray(s.cash.transfers)) s.cash.transfers = [];
   const def = defaultSettings();
   const st = (d && d.settings) || {};
   s.settings = Object.assign(def, st, {
@@ -296,9 +300,24 @@ function signed(t) {
 const courantEffect = o => (o.kind === 'versement' ? -o.amount : o.kind === 'retrait' ? o.amount : 0);
 const livretEffect = o => (o.kind === 'retrait' ? -o.amount : o.amount);
 
+// Retrait au distributeur : le compte baisse, les espèces montent. Dépôt : l'inverse.
+const transferCourant = o => (o.kind === 'retrait' ? -o.amount : o.amount);
+const isCash = t => t.account === 'especes';
+
 function balance() {
-  return (state.startBalance || 0) + sum(state.transactions.map(signed)) + sum(state.savings.ops.map(courantEffect));
+  return (state.startBalance || 0)
+    + sum(state.transactions.filter(t => !isCash(t)).map(signed))
+    + sum(state.savings.ops.map(courantEffect))
+    + sum(state.cash.transfers.map(transferCourant));
 }
+function cashBalance() {
+  return (state.cash.startBalance || 0)
+    + sum(state.transactions.filter(isCash).map(signed))
+    - sum(state.cash.transfers.map(transferCourant));
+}
+const cashOn = () => state.cash.startBalance !== null || state.transactions.some(isCash) || state.cash.transfers.length > 0;
+// Tout l'argent disponible : compte courant + espèces
+const totalBalance = () => balance() + cashBalance();
 function livretBalance() {
   return (state.savings.startBalance || 0) + sum(state.savings.ops.map(livretEffect));
 }
@@ -382,7 +401,7 @@ function projection(n = 12) {
   const budget = dailyBudget();
   const c0 = cycleAt(0);
   const pend = pendingIn(c0);
-  let bal = balance() + sum(pend.map(x => signed(x.p))) - Math.max(0, budget - varSpentIn(c0));
+  let bal = totalBalance() + sum(pend.map(x => signed(x.p))) - Math.max(0, budget - varSpentIn(c0));
   let liv = livretBalance() + sum(pend.filter(x => x.p.type === 'epargne').map(x => x.p.amount));
   const rows = [{ key: c0.key, c: c0, end: bal, livret: liv }];
   for (let i = 1; i < n; i++) {
@@ -590,7 +609,7 @@ function txRow(t) {
     ${bubble(c.color, c.emoji)}
     <span class="row-main">
       <span class="row-title">${esc(t.label || c.nom)}</span>
-      <span class="row-sub">${esc(c.nom)}${t.planId ? ' (prévu)' : ''}</span>
+      <span class="row-sub">${esc(c.nom)}${t.planId ? ' (prévu)' : ''}${isCash(t) ? ', en espèces 💶' : ''}</span>
     </span>
     <span class="row-amount ${t.type === 'revenu' ? 'revenu' : ''}">${signedMoney(signed(t))}</span>
   </button></li>`;
@@ -604,6 +623,19 @@ function savCourantRow(o) {
       <span class="row-sub">Virement${o.label ? ', ' + esc(o.label) : ''}</span>
     </span>
     <span class="row-amount ${o.kind === 'retrait' ? 'revenu' : ''}">${signedMoney(courantEffect(o))}</span>
+  </button></li>`;
+}
+
+function cashTransferRow(o, vueEspeces = false) {
+  const retrait = o.kind === 'retrait';
+  const montant = vueEspeces ? -transferCourant(o) : transferCourant(o);
+  return `<li><button class="row" data-act="edit-cash" data-id="${o.id}">
+    ${bubble('#3F8A4F', retrait ? '🏧' : '🏦')}
+    <span class="row-main">
+      <span class="row-title">${retrait ? 'Retrait au distributeur' : 'Dépôt sur le compte'}</span>
+      <span class="row-sub">${retrait ? 'Compte → espèces' : 'Espèces → compte'}${o.label ? ', ' + esc(o.label) : ''}</span>
+    </span>
+    <span class="row-amount ${montant > 0 ? 'revenu' : ''}">${signedMoney(montant)}</span>
   </button></li>`;
 }
 
@@ -877,7 +909,8 @@ function renderMois() {
   const futurs = pending.filter(x => x.p.auto || x.occ > todayStr());
   const pendNet = sum(pending.map(x => signed(x.p)));
   const bal = balance();
-  const dispo = bal + pendNet;
+  const cash = cashBalance();
+  const dispo = bal + cash + pendNet;
   const txs = txIn(c);
   const rev = sum(txs.filter(t => t.type === 'revenu').map(t => t.amount));
   const dep = sum(txs.filter(t => t.type === 'depense').map(t => t.amount));
@@ -910,6 +943,15 @@ function renderMois() {
     <span class="row-amount">${money(livretBalance())}</span>
   </button>` : '';
 
+  const especes = on('especes') ? `<button class="mini-card" data-view="especes">
+    ${bubble('#3F8A4F', '💶')}
+    <span class="row-main">
+      <span class="row-title">Espèces</span>
+      <span class="row-sub">${cashOn() ? `${periodWord()} : ${signedMoney(sum(txIn(c).filter(isCash).map(signed)) - sum(state.cash.transfers.filter(o => inCycle(o.date, c)).map(transferCourant)))}` : 'Touche ici pour ajouter ton liquide'}</span>
+    </span>
+    <span class="row-amount">${money(cash)}</span>
+  </button>` : '';
+
   const recent = [...state.transactions].sort(byDateDesc).slice(0, 5);
   const resumeTitre = cycleDay() === 1 ? `${cap(c.start.toLocaleDateString('fr-FR', { month: 'long' }))} en bref` : `Depuis le ${shortDate(c.s)}`;
 
@@ -923,12 +965,14 @@ function renderMois() {
       ? `Soit ${money(dispo / daysLeft)} par jour pendant ${daysLeft} jour${daysLeft > 1 ? 's' : ''}.`
       : `Tes dépenses prévues dépassent ton solde de ${money(-dispo)}.`}</p>
     <div class="jauge" role="img" aria-label="Jour ${day} sur ${total} du cycle">${ticks}</div>
-    <div class="hero-meta">
-      <div><span>Compte courant</span><strong>${money(bal)}</strong></div>
-      <div><span>Encore prévu d'ici là</span><strong>${signedMoney(pendNet)}</strong></div>
+    <div class="hero-meta ${cashOn() ? 'trio' : ''}">
+      <div><span>Compte</span><strong>${money(bal)}</strong></div>
+      ${cashOn() ? `<div><span>Espèces</span><strong>${money(cash)}</strong></div>` : ''}
+      <div><span>Encore prévu</span><strong>${signedMoney(pendNet)}</strong></div>
     </div>
   </section>
   ${livret}
+  ${especes}
   ${rappel}
   ${confirmBlock()}
   ${on('planEpargne') ? planBlock() : ''}
@@ -963,13 +1007,14 @@ function renderMois() {
 function renderOps() {
   const txs = txOfMonth(opsMonth);
   const virements = savOfMonth(opsMonth).filter(o => o.kind === 'versement' || o.kind === 'retrait');
-  const items = [...txs.map(t => ({ ...t, _k: 'tx' })), ...virements.map(o => ({ ...o, _k: 'sav' }))].sort(byDateDesc);
+  const liquides = state.cash.transfers.filter(o => o.date.startsWith(opsMonth));
+  const items = [...txs.map(t => ({ ...t, _k: 'tx' })), ...virements.map(o => ({ ...o, _k: 'sav' })), ...liquides.map(o => ({ ...o, _k: 'cash' }))].sort(byDateDesc);
   const rev = sum(txs.filter(t => t.type === 'revenu').map(t => t.amount));
   const dep = sum(txs.filter(t => t.type === 'depense').map(t => t.amount));
   const groups = {};
   items.forEach(t => (groups[t.date] ||= []).push(t));
   const list = Object.keys(groups).map(d =>
-    `<h3 class="day">${dayLabel(d)}</h3><ul class="list">${groups[d].map(x => x._k === 'tx' ? txRow(x) : savCourantRow(x)).join('')}</ul>`).join('');
+    `<h3 class="day">${dayLabel(d)}</h3><ul class="list">${groups[d].map(x => x._k === 'tx' ? txRow(x) : x._k === 'cash' ? cashTransferRow(x) : savCourantRow(x)).join('')}</ul>`).join('');
 
   return `<header class="page-head"><h1>Opérations</h1></header>
   <div class="month-nav">
@@ -1060,6 +1105,52 @@ function renderEpargne() {
   <section class="block">
     <div class="block-head"><h2>Historique</h2></div>
     ${historique || `<p class="empty">Aucun mouvement pour l'instant. Touche le bouton + pour en ajouter un.</p>`}
+  </section>`;
+}
+
+function renderEspeces() {
+  const c = cycleAt(0);
+  const cash = cashBalance();
+  const items = [
+    ...state.transactions.filter(isCash).map(t => ({ ...t, _k: 'tx' })),
+    ...state.cash.transfers.map(o => ({ ...o, _k: 'cash' })),
+  ].sort(byDateDesc);
+  const sorties = sum(txIn(c).filter(t => isCash(t) && t.type === 'depense').map(t => t.amount));
+  const retraits = sum(state.cash.transfers.filter(o => o.kind === 'retrait' && inCycle(o.date, c)).map(o => o.amount));
+  const groups = {};
+  items.forEach(x => (groups[x.date.slice(0, 7)] ||= []).push(x));
+  const historique = Object.keys(groups).map(k =>
+    `<h3 class="day">${monthLabel(k)}</h3><ul class="list">${groups[k].map(x => x._k === 'tx' ? txRow(x) : cashTransferRow(x, true)).join('')}</ul>`).join('');
+
+  const setup = state.cash.startBalance === null ? `<section class="setup">
+      <h2>Ton liquide</h2>
+      <p>Compte les billets et pièces que tu as sur toi et chez toi.</p>
+      <form id="cash-setup" class="inline-form">
+        <label class="field"><span>Montant en espèces</span><input name="solde" inputmode="decimal" placeholder="Ex. 40,00" required></label>
+        <button class="btn primary">Enregistrer</button>
+      </form>
+    </section>` : '';
+
+  return `<header class="page-head"><h1>Espèces</h1>
+    <button class="icon-btn big" data-view="mois" aria-label="Retour">‹</button></header>
+  ${setup}
+  <section class="hero cash">
+    <p class="hero-label">Dans ton portefeuille</p>
+    <p class="hero-amount">${money(cash)}</p>
+    <p class="hero-sub">${periodWord()} : ${money(retraits)} retirés, ${money(sorties)} dépensés en liquide</p>
+  </section>
+  <div class="btn-row" style="margin-bottom:12px">
+    <button class="btn primary grow" data-act="cash-spend">Payer en espèces</button>
+    <button class="btn grow" data-act="add-cash" data-kind="retrait">Retrait au distributeur</button>
+  </div>
+  <div class="btn-row" style="margin-bottom:28px">
+    <button class="btn grow" data-act="add-cash" data-kind="depot">Dépôt sur le compte</button>
+    <button class="btn grow" data-act="cash-count">Recompter</button>
+  </div>
+  <p class="hint">« Recompter » corrige l'app si tu as oublié de noter des dépenses en liquide : la différence est enregistrée dans « ${esc(catInfo('depense', 'autre').nom)} ».</p>
+  <section class="block">
+    <div class="block-head"><h2>Historique</h2></div>
+    ${historique || `<p class="empty">Aucun mouvement en espèces pour l'instant.</p>`}
   </section>`;
 }
 
@@ -1195,6 +1286,10 @@ function renderReglages() {
       <label class="field"><span>Compte courant</span><input name="solde" inputmode="decimal" placeholder="0,00" value="${fmtInput(state.startBalance)}"></label>
       <button class="btn primary">Enregistrer</button>
     </form>
+    <form id="cash-start" class="inline-form" style="margin-bottom:12px">
+      <label class="field"><span>Espèces</span><input name="solde" inputmode="decimal" placeholder="0,00" value="${fmtInput(state.cash.startBalance)}"></label>
+      <button class="btn primary">Enregistrer</button>
+    </form>
     <form id="sav-start" class="inline-form">
       <label class="field"><span>Livret A</span><input name="solde" inputmode="decimal" placeholder="0,00" value="${fmtInput(state.savings.startBalance)}"></label>
       <button class="btn primary">Enregistrer</button>
@@ -1237,7 +1332,7 @@ const sheet = document.getElementById('sheet');
 function render() {
   applyAuto();
   autoLink();
-  const screens = { mois: renderMois, ops: renderOps, epargne: renderEpargne, prev: renderPrev, reglages: renderReglages, cats: renderCats };
+  const screens = { mois: renderMois, ops: renderOps, epargne: renderEpargne, prev: renderPrev, reglages: renderReglages, cats: renderCats, especes: renderEspeces };
   $view.innerHTML = (screens[view] || renderMois)();
   document.querySelectorAll('.tabbar [data-view]').forEach(b =>
     b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
@@ -1264,6 +1359,7 @@ function openTxForm(tx = null, prefill = null) {
     ${sheetHead(tx ? "Modifier l'opération" : 'Nouvelle opération')}
     ${seg('type', type, [['depense', 'Dépense'], ['revenu', 'Revenu']], 'Type')}
     ${amountField(hasAmount ? fmtInput(d.amount) : '', !tx && !hasAmount)}
+    ${seg('account', d.account === 'especes' ? 'especes' : 'courant', [['courant', '💳 Carte ou virement'], ['especes', '💶 Espèces']], 'Moyen de paiement')}
     <label class="field"><span>Libellé</span><input name="label" maxlength="60" placeholder="Ex. Carrefour, cinéma, loyer" value="${esc(d.label || '')}"></label>
     <fieldset class="cats"><legend>Catégorie</legend><div class="chips" data-chips>${chips(type, d.cat)}</div></fieldset>
     <label class="field"><span>Date</span><input type="date" name="date" value="${d.date || todayStr()}" required></label>
@@ -1384,6 +1480,30 @@ function deleteCat(type, id) {
   toast('Catégorie supprimée');
 }
 
+function openCashForm(o = null, kind = 'retrait') {
+  const k = o ? o.kind : kind;
+  sheet.innerHTML = `<form id="cash-form" class="sheet-body" data-edit="${o ? o.id : ''}" autocomplete="off">
+    ${sheetHead(o ? 'Modifier le mouvement' : 'Espèces')}
+    ${seg('kind', k, [['retrait', '🏧 Retrait'], ['depot', '🏦 Dépôt']], 'Type')}
+    <p class="hint center" data-cash-help>${k === 'retrait' ? 'Ton compte baisse, tes espèces augmentent.' : 'Tes espèces baissent, ton compte augmente.'}</p>
+    ${amountField(o ? fmtInput(o.amount) : '', !o)}
+    <label class="field"><span>Note (facultatif)</span><input name="label" maxlength="60" placeholder="Ex. Distributeur gare" value="${esc(o ? o.label : '')}"></label>
+    <label class="field"><span>Date</span><input type="date" name="date" value="${o ? o.date : todayStr()}" required></label>
+    ${actions('delete-cash', o && o.id)}
+  </form>`;
+  sheet.showModal();
+}
+
+function openCountForm() {
+  sheet.innerHTML = `<form id="count-form" class="sheet-body" autocomplete="off">
+    ${sheetHead('Recompter mes espèces')}
+    <p class="hint center">D'après l'app, tu as ${money(cashBalance())}. Combien as-tu vraiment ?</p>
+    ${amountField('', true)}
+    <div class="sheet-actions"><button class="btn primary grow" type="submit">Corriger</button></div>
+  </form>`;
+  sheet.showModal();
+}
+
 function formError(f, msg) {
   const el = f.querySelector('.form-error');
   el.textContent = msg;
@@ -1396,11 +1516,11 @@ function saveTx(f) {
   const el = f.elements;
   const amount = Math.abs(parseNumber(el.amount.value));
   if (!amount) return formError(f, 'Indique un montant, par exemple 12,50');
-  const data = { type: el.type.value, amount, label: el.label.value.trim(), cat: checkedCat(f), date: el.date.value || todayStr() };
+  const data = { type: el.type.value, amount, label: el.label.value.trim(), cat: checkedCat(f), date: el.date.value || todayStr(), account: el.account.value };
   const id = f.dataset.edit;
   // Nouvelle opération avec une date future : on la programme
   if (!id && !f.dataset.plan && data.date > todayStr()) {
-    state.plans.push({ id: uid(), type: data.type, amount, label: data.label, cat: data.cat, freq: 'unique', date: data.date, day: 1, auto: false, lastDone: null, added: false });
+    state.plans.push({ id: uid(), type: data.type, amount, label: data.label, cat: data.cat, account: data.account, freq: 'unique', date: data.date, day: 1, auto: false, lastDone: null, added: false });
     save(); sheet.close(); render();
     return toast(`Programmée pour le ${shortDate(data.date)}`);
   }
@@ -1519,7 +1639,16 @@ document.addEventListener('click', e => {
   }
   const id = t.dataset.id;
   switch (t.dataset.act) {
-    case 'add-tx': view === 'epargne' ? openSavForm() : openTxForm(); break;
+    case 'add-tx': view === 'epargne' ? openSavForm() : view === 'especes' ? openTxForm(null, { account: 'especes' }) : openTxForm(); break;
+    case 'cash-spend': openTxForm(null, { account: 'especes' }); break;
+    case 'add-cash': openCashForm(null, t.dataset.kind); break;
+    case 'edit-cash': openCashForm(state.cash.transfers.find(x => x.id === id)); break;
+    case 'cash-count': openCountForm(); break;
+    case 'delete-cash':
+      if (!confirm('Supprimer ce mouvement ?')) break;
+      state.cash.transfers = state.cash.transfers.filter(x => x.id !== id);
+      save(); sheet.close(); render(); toast('Mouvement supprimé');
+      break;
     case 'edit-tx': openTxForm(state.transactions.find(x => x.id === id)); break;
     case 'add-sav': openSavForm(null, t.dataset.kind); break;
     case 'edit-sav': openSavForm(state.savings.ops.find(x => x.id === id)); break;
@@ -1531,7 +1660,7 @@ document.addEventListener('click', e => {
       const p = state.plans.find(x => x.id === id);
       if (!p) break;
       if (p.type === 'epargne') { markPlanDone(id, t.dataset.occ); break; }
-      openTxForm(null, { type: p.type, amount: p.amount, label: p.label, cat: p.cat, date: todayStr(), planId: p.id, occ: t.dataset.occ });
+      openTxForm(null, { type: p.type, amount: p.amount, label: p.label, cat: p.cat, account: p.account, date: todayStr(), planId: p.id, occ: t.dataset.occ });
       break;
     }
     case 'edit-budget': openBudgetForm(id); break;
@@ -1583,10 +1712,12 @@ document.addEventListener('click', e => {
 document.addEventListener('submit', e => {
   const f = e.target;
   e.preventDefault();
-  if (['setup-form', 'start-form', 'sav-setup', 'sav-start'].includes(f.id)) {
+  if (['setup-form', 'start-form', 'sav-setup', 'sav-start', 'cash-setup', 'cash-start'].includes(f.id)) {
     const v = parseNumber(f.elements.solde.value);
     if (isNaN(v)) return toast('Montant invalide');
-    if (f.id.startsWith('sav')) state.savings.startBalance = v; else state.startBalance = v;
+    if (f.id.startsWith('sav')) state.savings.startBalance = v;
+    else if (f.id.startsWith('cash')) state.cash.startBalance = v;
+    else state.startBalance = v;
     save(); render(); toast('Solde enregistré');
   } else if (f.id === 'budget-form') {
     const v = parseNumber(f.elements.budget.value);
@@ -1607,6 +1738,30 @@ document.addEventListener('submit', e => {
     if (!v) return formError(f, 'Indique un montant, par exemple 200');
     state.catBudgets[f.dataset.cat] = { amount: v, mode: f.elements.mode.value };
     save(); sheet.close(); render(); toast('Budget enregistré');
+  } else if (f.id === 'cash-form') {
+    const el = f.elements;
+    const amount = Math.abs(parseNumber(el.amount.value));
+    if (!amount) return formError(f, 'Indique un montant, par exemple 20');
+    const data = { kind: el.kind.value, amount, label: el.label.value.trim(), date: el.date.value || todayStr() };
+    const id = f.dataset.edit;
+    if (id) Object.assign(state.cash.transfers.find(x => x.id === id), data);
+    else state.cash.transfers.push({ id: uid(), created: Date.now(), ...data });
+    if (state.cash.startBalance === null) state.cash.startBalance = 0;
+    save(); sheet.close(); render(); toast(data.kind === 'retrait' ? 'Retrait enregistré' : 'Dépôt enregistré');
+  } else if (f.id === 'count-form') {
+    const reel = Math.abs(parseNumber(f.elements.amount.value));
+    if (isNaN(reel)) return formError(f, 'Indique un montant, même 0');
+    const diff = Math.round((reel - cashBalance()) * 100) / 100;
+    if (state.cash.startBalance === null) state.cash.startBalance = 0;
+    if (diff !== 0) {
+      state.transactions.push({
+        id: uid(), created: Date.now(), account: 'especes', date: todayStr(),
+        type: diff < 0 ? 'depense' : 'revenu', amount: Math.abs(diff),
+        cat: diff < 0 ? 'autre' : 'autre-revenu', label: 'Écart en recomptant mes espèces',
+      });
+    }
+    save(); sheet.close(); render();
+    toast(diff === 0 ? 'Tout est juste 👍' : diff < 0 ? `${money(-diff)} de dépenses non notées ajoutées` : `${money(diff)} ajoutés à tes espèces`);
   } else if (f.id === 'cat-form') saveCat(f);
   else if (f.id === 'tx-form') saveTx(f);
   else if (f.id === 'sav-form') saveSav(f);
@@ -1655,7 +1810,8 @@ document.addEventListener('change', e => {
     }
     if (el.value === 'proches') f.elements.auto.checked = true;
   }
-  if (el.name === 'kind') f.querySelector('[data-kind-help]').textContent = KINDS[el.value].aide;
+  if (el.name === 'kind' && f.id === 'sav-form') f.querySelector('[data-kind-help]').textContent = KINDS[el.value].aide;
+  if (el.name === 'kind' && f.id === 'cash-form') f.querySelector('[data-cash-help]').textContent = el.value === 'retrait' ? 'Ton compte baisse, tes espèces augmentent.' : 'Tes espèces baissent, ton compte augmente.';
   if (el.name === 'mode' && f.id === 'budget-cat-form') {
     f.querySelector('[data-mode-help]').textContent = MODES[el.value].aide(budgetPeriod().n);
     f.querySelector('[data-amount-unit]').textContent = el.value === 'semaine' ? 'par semaine' : 'par cycle';
