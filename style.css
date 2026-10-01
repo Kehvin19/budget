@@ -442,3 +442,52 @@ dialog.sheet[open] { animation: monte 0.22s ease-out; }
 .seg.grid2 { grid-auto-flow: row; grid-template-columns: 1fr 1fr; gap: 3px; margin-bottom: 6px; }
 .seg.grid2 span { font-size: 14px; padding: 10px 6px; }
 .hint.center { text-align: center; min-height: 2.8em; margin: 6px 8px 0; }
+
+/* Version 3 : cycle, plan d'épargne, réglages */
+.tag { font-size: 13px; font-weight: 600; color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); padding: 5px 10px; border-radius: 999px; }
+.switch-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; }
+.switch-row .row-title { white-space: normal; }
+.switch-row.boxed { background: var(--raised); border-radius: 14px; margin: 0 0 16px; }
+input.switch {
+  -webkit-appearance: none; appearance: none;
+  flex: none; position: relative;
+  width: 51px; height: 31px; margin: 0;
+  border-radius: 16px; background: var(--line);
+  cursor: pointer; transition: background 0.2s;
+}
+input.switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 27px; height: 27px; border-radius: 50%;
+  background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.2s;
+}
+input.switch:checked { background: var(--green); }
+input.switch:checked::after { transform: translateX(20px); }
+@media (prefers-reduced-motion: reduce) { input.switch, input.switch::after { transition: none; } }
+.switch-row.boxed input.switch { background: var(--surface); }
+.switch-row.boxed input.switch:checked { background: var(--green); }
+
+.field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field-pair .field { margin: 0; }
+
+.plan-card { background: var(--surface); border-radius: 18px; padding: 6px 16px 12px; }
+.plan-step { display: flex; gap: 12px; align-items: flex-start; padding: 14px 0; }
+.plan-step + .plan-step { border-top: 1px solid var(--line); }
+.plan-num {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--save); color: #FFFFFF;
+  font: 700 14px var(--num);
+}
+.plan-text { flex: 1; min-width: 0; }
+.plan-title { margin: 2px 0 0; font-size: 14px; color: var(--muted); }
+.plan-amount { margin: 2px 0 0; font: 700 28px/1.15 var(--num); font-variant-numeric: tabular-nums; color: var(--green); }
+.plan-note { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.plan-step .btn { align-self: center; }
+.calc-wrap summary { cursor: pointer; color: var(--blue); font-weight: 600; font-size: 15px; padding: 10px 0 4px; border-top: 1px solid var(--line); }
+.calc { margin: 8px 0 0; }
+.calc div { display: flex; justify-content: space-between; padding: 5px 0; font-size: 15px; }
+.calc dt { color: var(--muted); }
+.calc dd { margin: 0; font: 600 15px var(--num); font-variant-numeric: tabular-nums; }
+.calc .calc-total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 9px; }
+.calc .calc-total dt { color: var(--ink); font-weight: 600; }
