@@ -539,3 +539,9 @@ input.switch:checked::after { transform: translateX(20px); }
   background: var(--surface); border-radius: 12px;
   font-weight: 600;
 }
+.plan-warn {
+  margin: 0 0 12px; padding: 12px 14px;
+  background: color-mix(in srgb, #D1A032 16%, var(--surface));
+  border-radius: 12px; font-size: 14px;
+}
+.plan-warn .link { display: block; padding: 6px 0 0; }

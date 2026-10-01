@@ -146,7 +146,7 @@ const fmtInput = n => (n === null || n === undefined || n === '') ? '' : Number(
    3. Données (stockées uniquement sur l'appareil)
    Le nom de rangement ne change pas : tes données sont gardées.
    ===================================================== */
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 const KEY = 'mon-budget-v1';
 const defaultSettings = () => ({
   cycleDay: 1,        // jour de début du cycle (jour du salaire)
@@ -410,6 +410,33 @@ function applyAuto() {
   if (changed) save();
 }
 
+// Si tu saisis à la main une opération qui correspond à une prévision
+// (ex. ton salaire), la prévision est considérée comme reçue : pas de double comptage.
+function autoLink() {
+  let changed = false;
+  const close = (a, b) => Math.abs(a - b) <= Math.max(10, b * 0.1);
+  const near = (d, occ) => Math.abs(parseDate(d) - parseDate(occ)) <= 10 * 864e5;
+  for (const off of [-1, 0]) {
+    const c = cycleAt(off);
+    pendingIn(c).forEach(({ p, occ }) => {
+      let item;
+      if (p.type === 'epargne') {
+        const kind = p.source === 'proches' ? 'externe' : 'versement';
+        item = state.savings.ops.find(o => !o.planId && o.kind === kind && inCycle(o.date, c) && near(o.date, occ) && close(o.amount, p.amount));
+      } else {
+        item = state.transactions.find(t => !t.planId && t.type === p.type && t.cat === p.cat && inCycle(t.date, c) && near(t.date, occ) && close(t.amount, p.amount));
+      }
+      if (!item) return;
+      item.planId = p.id;
+      item.occ = occ;
+      if (p.freq === 'mois') { if (!p.lastDone || occ > p.lastDone) p.lastDone = occ; } else p.added = true;
+      changed = true;
+    });
+  }
+  if (changed) save();
+  return changed;
+}
+
 /* =====================================================
    7. Conseils (calculés sur ton téléphone, rien n'est envoyé)
    ===================================================== */
@@ -671,6 +698,14 @@ function planBlock() {
           <p class="plan-note">Si tu respectes ton budget du quotidien${pl.budget ? ` de ${money(pl.budget)}` : ''}, en gardant ${money(pl.margin)} de marge sur ton compte.</p>
         </div>
       </div>
+      ${(() => {
+        const avec = dailyCats().filter(c => (state.catBudgets[c.id] || 0) > 0);
+        if (avec.length >= 4) return '';
+        return `<p class="plan-warn">${avec.length
+          ? `Ton budget du quotidien ne compte que : ${avec.map(c => c.nom.toLowerCase()).join(', ')}. Les restos, le transport, les sorties… ne sont pas déduits, donc ce plan est trop optimiste.`
+          : `Tu n'as fixé aucun budget du quotidien : ce plan suppose que tu ne dépenses rien en courses, sorties, transport…`}
+          <button class="link" data-view="prev">Compléter mes budgets</button></p>`;
+      })()}
       <details class="calc-wrap"><summary>Voir le calcul</summary>
         <dl class="calc">
           ${line('Revenus du cycle', pl.income)}
@@ -1069,6 +1104,7 @@ const sheet = document.getElementById('sheet');
 
 function render() {
   applyAuto();
+  autoLink();
   const screens = { mois: renderMois, ops: renderOps, epargne: renderEpargne, prev: renderPrev, reglages: renderReglages };
   $view.innerHTML = (screens[view] || renderMois)();
   document.querySelectorAll('.tabbar [data-view]').forEach(b =>
@@ -1160,8 +1196,10 @@ function saveTx(f) {
   const id = f.dataset.edit;
   if (id) Object.assign(state.transactions.find(t => t.id === id), data);
   else state.transactions.push({ id: uid(), created: Date.now(), ...data });
-  save(); sheet.close(); render();
-  toast(id ? 'Opération modifiée' : 'Opération ajoutée');
+  save(); sheet.close();
+  const linked = autoLink();
+  render();
+  toast(linked && !id ? 'Ajoutée et associée à ta prévision' : id ? 'Opération modifiée' : 'Opération ajoutée');
 }
 
 function saveSav(f) {

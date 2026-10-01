@@ -1,7 +1,7 @@
 // Permet à l'app de fonctionner sans connexion.
 // Quand tu modifies l'app, change le numéro de version ci-dessous
 // (et le ?v= dans index.html).
-const CACHE = 'budget-v5';
+const CACHE = 'budget-v6';
 const FICHIERS = ['./', './index.html', './style.css', './app.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
