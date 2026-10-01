@@ -5,18 +5,19 @@
    ===================================================== */
 const CATS = {
   depense: [
-    { id: 'courses',     nom: 'Courses',     emoji: '🛒', color: '#3F8A4F' },
-    { id: 'restos',      nom: 'Restos',      emoji: '🍔', color: '#E0822E' },
-    { id: 'transport',   nom: 'Transport',   emoji: '🚆', color: '#2E5E9E' },
-    { id: 'logement',    nom: 'Logement',    emoji: '🏠', color: '#7A5BA8' },
-    { id: 'abonnements', nom: 'Abonnements', emoji: '📱', color: '#C0392F' },
-    { id: 'loisirs',     nom: 'Loisirs',     emoji: '🎮', color: '#D1A032' },
-    { id: 'shopping',    nom: 'Shopping',    emoji: '🛍️', color: '#CF5F92' },
-    { id: 'cadeaux',     nom: 'Cadeaux',     emoji: '🎁', color: '#B5527A' },
-    { id: 'maison',      nom: 'Maison',      emoji: '💡', color: '#8A6D3B' },
-    { id: 'sante',       nom: 'Santé',       emoji: '💊', color: '#2F9C93' },
-    { id: 'etudes',      nom: 'Études',      emoji: '📚', color: '#5E7394' },
-    { id: 'autre',       nom: 'Autre',       emoji: '📦', color: '#858B96' },
+    { id: 'courses',     nom: 'Courses',           emoji: '🛒', color: '#3F8A4F', quotidien: true, desc: 'Supermarché, alimentation' },
+    { id: 'restos',      nom: 'Restos & cafés',    emoji: '🍔', color: '#E0822E', quotidien: true, desc: 'Fast-food, CROUS, cafés, livraison' },
+    { id: 'transport',   nom: 'Transport',         emoji: '🚆', color: '#2E5E9E', quotidien: true, desc: 'Essence, péage, tickets, trottinette' },
+    { id: 'loisirs',     nom: 'Sorties & loisirs', emoji: '🎮', color: '#D1A032', quotidien: true, desc: 'Cinéma, bars, sport, jeux' },
+    { id: 'shopping',    nom: 'Shopping',          emoji: '🛍️', color: '#CF5F92', quotidien: true, desc: 'Vêtements, chaussures, high-tech' },
+    { id: 'hygiene',     nom: 'Hygiène & beauté',  emoji: '🧴', color: '#6E8FC9', quotidien: true, desc: "Produits d'hygiène, coiffeur" },
+    { id: 'cadeaux',     nom: 'Cadeaux',           emoji: '🎁', color: '#B5527A', quotidien: true, desc: 'Anniversaires, fêtes' },
+    { id: 'maison',      nom: 'Maison',            emoji: '💡', color: '#8A6D3B', quotidien: true, desc: 'Ménage, petits achats, réparations' },
+    { id: 'sante',       nom: 'Santé',             emoji: '💊', color: '#2F9C93', quotidien: true, desc: 'Pharmacie, consultations' },
+    { id: 'etudes',      nom: 'Études',            emoji: '📚', color: '#5E7394', quotidien: true, desc: 'Fournitures, impressions, livres' },
+    { id: 'logement',    nom: 'Logement',          emoji: '🏠', color: '#7A5BA8' },
+    { id: 'abonnements', nom: 'Abonnements',       emoji: '📱', color: '#C0392F' },
+    { id: 'autre',       nom: 'Imprévus & autre',  emoji: '📦', color: '#858B96', quotidien: true, desc: 'Tout le reste' },
   ],
   revenu: [
     { id: 'salaire',      nom: 'Salaire',      emoji: '💼', color: '#2F7D43' },
@@ -46,6 +47,7 @@ const KINDS = {
 // Les blocs de l'accueil qu'on peut afficher ou masquer
 const FEATURES = [
   ['planEpargne', "Plan d'épargne", "Combien mettre de côté après ton salaire et en fin de cycle"],
+  ['semaine', 'Budgets de la semaine', "Ce qu'il te reste par catégorie cette semaine"],
   ['conseils', 'Conseils', 'Des conseils calculés sur ton téléphone'],
   ['livret', 'Carte Livret A', "Le montant de ton livret sur l'accueil"],
   ['resume', 'Résumé et graphique', 'Entrées, sorties et dépenses par catégorie'],
@@ -54,6 +56,7 @@ const FEATURES = [
 // Les types de conseils qu'on peut activer un par un
 const TIP_TYPES = [
   ['rouge', 'Alerte compte dans le rouge'],
+  ['semaine', 'Catégorie qui dépasse son budget de la semaine'],
   ['rythme', 'Rythme des dépenses du quotidien'],
   ['bravo', 'Encouragements'],
   ['budget', 'Rappel de fixer un budget'],
@@ -69,6 +72,7 @@ const MOTS_CLES = [
   ['logement', /loyer|colocation|edf|engie|electricit|assurance habitation|internet box/i],
   ['cadeaux', /cadeau|anniversaire|anniv|no[eë]l|f[eê]te des/i],
   ['maison', /ampoule|bricolage|leroy|castorama|brico|m[eé]nage|vaisselle|lessive/i],
+  ['hygiene', /sephora|nocib|marionnaud|kiko|coiffeur|barbier|shampo|gel douche|dentifrice|rasoir/i],
   ['restos', /mcdo|mcdonald|burger|kfc|quick|subway|starbucks|uber ?eats|deliveroo|domino|pizza|crous|boulangerie|sushi|kebab/i],
   ['courses', /carrefour|lidl|auchan|leclerc|intermarch|monoprix|franprix|casino|aldi|super ?u\b|picard|biocoop|netto|g20|spar/i],
   ['abonnements', /forfait|abonnement|netflix|spotify|deezer|disney|canal|apple\.com|icloud|prime video|amazon prime|free mobile|orange|sfr|bouygues|sosh|red by|youtube/i],
@@ -142,17 +146,19 @@ const fmtInput = n => (n === null || n === undefined || n === '') ? '' : Number(
    3. Données (stockées uniquement sur l'appareil)
    Le nom de rangement ne change pas : tes données sont gardées.
    ===================================================== */
+const APP_VERSION = 4;
 const KEY = 'mon-budget-v1';
 const defaultSettings = () => ({
   cycleDay: 1,        // jour de début du cycle (jour du salaire)
   margin: 50,         // marge de sécurité à garder sur le compte
-  features: { planEpargne: true, conseils: true, livret: true, resume: true, rappel: true },
+  features: { planEpargne: true, semaine: true, conseils: true, livret: true, resume: true, rappel: true },
   tipsOff: [],
 });
 const defaultState = () => ({
   version: 3,
   startBalance: null,
-  variableBudget: 0,
+  variableBudget: 0,  // ancien budget global (remplacé par catBudgets)
+  catBudgets: {},     // budget par catégorie et par cycle, ex. { courses: 400 }
   transactions: [],   // {id, type, amount, label, cat, date, planId?, occ?}
   plans: [],          // {id, type, amount, label, cat, freq:'mois'|'unique', day, date, source, auto, since, lastDone, added}
   savings: { startBalance: null, ops: [] },
@@ -181,7 +187,10 @@ function normalize(d) {
     if (p.freq === 'unique' && !p.date) p.date = (p.month || monthKey()) + '-01';
     if (p.type === 'epargne' && !p.source) p.source = 'moi';
   });
-  s.version = 3;
+  if (!s.catBudgets || typeof s.catBudgets !== 'object') {
+    s.catBudgets = s.variableBudget > 0 ? { autre: s.variableBudget } : {};
+  }
+  s.version = 4;
   return s;
 }
 function load() {
@@ -283,12 +292,41 @@ function avgVariable() {
   const cs = pastCyclesWithData();
   return cs.length ? sum(cs.map(varSpentIn)) / cs.length : null;
 }
+const dailyBudget = () => sum(Object.values(state.catBudgets || {}).map(Number).filter(n => n > 0));
+const dailyCats = () => CATS.depense.filter(c => c.quotidien);
+
+/* Semaines du lundi au dimanche. Une semaine appartient au cycle qui contient son lundi :
+   si le cycle se termine un mardi, la semaine entière compte dans ce cycle. */
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function mondayOf(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return addDays(x, -((x.getDay() + 6) % 7)); }
+function weeksOf(c) {
+  const out = [];
+  let m = mondayOf(c.start);
+  if (m < c.start) m = addDays(m, 7);
+  while (m <= c.end) { out.push(m); m = addDays(m, 7); }
+  return out;
+}
+function budgetPeriod() {
+  const mon = mondayOf(parseDate(todayStr()));
+  const c = cycleAt(0, mon);
+  const weeks = weeksOf(c);
+  const idx = Math.max(0, weeks.findIndex(w => dateStr(w) === dateStr(mon)));
+  return {
+    c, weeks, idx, n: weeks.length,
+    monS: dateStr(mon), sunS: dateStr(addDays(mon, 6)),
+    startS: dateStr(weeks[0]), endS: dateStr(addDays(weeks[weeks.length - 1], 6)),
+  };
+}
+const spentRange = (cat, s, e) => sum(state.transactions
+  .filter(t => t.type === 'depense' && !t.planId && t.cat === cat && t.date >= s && t.date <= e)
+  .map(t => t.amount));
+
 function fixedCharges() {
   return sum(state.plans.filter(p => p.freq === 'mois' && p.type === 'depense').map(p => p.amount));
 }
 
 function projection(n = 12) {
-  const budget = state.variableBudget || 0;
+  const budget = dailyBudget();
   const c0 = cycleAt(0);
   const pend = pendingIn(c0);
   let bal = balance() + sum(pend.map(x => signed(x.p))) - Math.max(0, budget - varSpentIn(c0));
@@ -309,7 +347,7 @@ function cyclePlan() {
   const c = cycleAt(0);
   const xs = plansInCycle(c);
   const amt = f => sum(xs.filter(f).map(x => x.p.amount));
-  const budget = state.variableBudget || 0;
+  const budget = dailyBudget();
   const margin = S().margin || 0;
   const income = amt(x => x.p.type === 'revenu');
   const fixed = amt(x => x.p.type === 'depense' && x.p.freq === 'mois');
@@ -382,7 +420,7 @@ function conseils() {
   const total = Math.round((c.end - c.start) / 864e5) + 1;
   const day = Math.round((parseDate(todayStr()) - c.start) / 864e5) + 1;
   const daysLeft = total - day + 1;
-  const budget = state.variableBudget || 0;
+  const budget = dailyBudget();
   const spent = varSpentIn(c);
   const plans = state.plans;
 
@@ -397,6 +435,17 @@ function conseils() {
     add('rouge', 100, '🚨', `Ton compte passerait sous zéro vers ${monthLabel(rows[idx].key).toLowerCase()}. En dépensant environ ${money(effort)} de moins par mois d'ici là, tu l'évites.`);
   }
 
+  {
+    const bp = budgetPeriod();
+    for (const cat of dailyCats()) {
+      const wb = (state.catBudgets[cat.id] || 0) / bp.n;
+      const sp = spentRange(cat.id, bp.monS, bp.sunS);
+      if (wb > 0 && sp - wb >= 5) {
+        add('semaine', 85, cat.emoji, `${cat.nom} : ${money(sp)} dépensés cette semaine pour ${money(wb)} prévus. Lève le pied jusqu'à dimanche, ou pioche dans une autre catégorie.`);
+        break;
+      }
+    }
+  }
   if (budget > 0 && day >= 5) {
     const attendu = budget * day / total;
     if (spent > attendu * 1.1) {
@@ -407,7 +456,7 @@ function conseils() {
     }
   }
   if (!budget && plans.length) {
-    add('budget', 70, '🎯', "Fixe un budget du quotidien dans Prévisions (courses, sorties…). C'est ce qui rend tes prévisions et ton plan d'épargne fiables.");
+    add('budget', 70, '🎯', "Fixe un budget par catégorie dans Prévisions (courses, sorties…). C'est ce qui rend tes prévisions et ton plan d'épargne fiables.");
   }
 
   const past = pastCyclesWithData();
@@ -638,6 +687,41 @@ function planBlock() {
   </section>`;
 }
 
+function weekBlock() {
+  const b = state.catBudgets;
+  const bp = budgetPeriod();
+  const head = `<div class="block-head"><h2>Cette semaine</h2></div>
+    <p class="hint top">Semaine ${bp.idx + 1} sur ${bp.n}, du ${shortDate(bp.monS)} au ${shortDate(bp.sunS)}</p>`;
+  const cats = dailyCats().filter(c => (b[c.id] || 0) > 0);
+  if (!cats.length) {
+    return `<section class="block">${head}
+      <div class="empty"><p style="margin:0 0 12px">Fixe un budget par catégorie (courses, sorties…) : l'app le découpe en semaines pour te dire ce qu'il te reste.</p>
+      <button class="btn small" data-view="prev">Fixer mes budgets</button></div></section>`;
+  }
+  let totB = 0, totS = 0;
+  const rows = cats.map(c => {
+    const wb = b[c.id] / bp.n;
+    const sp = spentRange(c.id, bp.monS, bp.sunS);
+    totB += wb; totS += sp;
+    const reste = wb - sp;
+    const pct = Math.min(100, wb ? sp / wb * 100 : 0);
+    return `<li class="budget-row">
+      <div class="budget-top"><span class="budget-name">${c.emoji} ${c.nom}</span><span class="budget-val">${money(sp)} / ${money(wb)}</span></div>
+      <div class="goal-bar ${reste < 0 ? 'over' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div>
+      <p class="budget-sub ${reste < 0 ? 'neg' : ''}">${reste >= 0 ? `Reste ${money(reste)}` : `Dépassé de ${money(-reste)}`}</p>
+    </li>`;
+  }).join('');
+  const sansBudget = dailyCats().filter(c => !(b[c.id] > 0)).map(c => ({ c, sp: spentRange(c.id, bp.monS, bp.sunS) })).filter(x => x.sp > 0);
+  const totPeriode = sum(cats.map(c => spentRange(c.id, bp.startS, bp.endS)));
+  const budPeriode = sum(cats.map(c => b[c.id]));
+  return `<section class="block">${head}
+    <div class="week-total"><span>Reste cette semaine</span><strong class="${totB - totS < 0 ? 'neg' : ''}">${money(totB - totS)}</strong></div>
+    <ul class="list budgets">${rows}</ul>
+    ${sansBudget.length ? `<p class="hint">Sans budget : ${sansBudget.map(x => `${x.c.emoji} ${x.c.nom} ${money(x.sp)}`).join(', ')}.</p>` : ''}
+    <p class="hint">Sur tout le cycle (du ${shortDate(bp.startS)} au ${shortDate(bp.endS)}) : ${money(totPeriode)} dépensés sur ${money(budPeriode)} prévus.</p>
+  </section>`;
+}
+
 const gearIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>`;
 
 /* =====================================================
@@ -705,6 +789,7 @@ function renderMois() {
   ${livret}
   ${rappel}
   ${on('planEpargne') ? planBlock() : ''}
+  ${on('semaine') ? weekBlock() : ''}
   <section class="block">
     <div class="block-head"><h2>À venir d'ici le ${shortDate(c.e)}</h2><button class="link" data-act="add-plan" data-freq="unique">Ajouter</button></div>
     ${pending.length
@@ -844,7 +929,7 @@ function renderPrev() {
   const entrees = sum(mensuels.filter(p => p.type === 'revenu').map(p => p.amount));
   const sorties = sum(mensuels.filter(p => p.type === 'depense').map(p => p.amount));
   const epargne = sum(mensuels.filter(p => p.type === 'epargne' && p.source !== 'proches').map(p => p.amount));
-  const net = entrees - sorties - epargne - (state.variableBudget || 0);
+  const net = entrees - sorties - epargne - (dailyBudget());
   const avg = avgVariable();
   const last = rows[rows.length - 1];
 
@@ -874,13 +959,21 @@ function renderPrev() {
   </section>
 
   <section class="block">
-    <div class="block-head"><h2>Dépenses du quotidien</h2></div>
-    <p class="hint">Combien tu comptes dépenser par cycle en courses, sorties, etc., en plus des dépenses fixes et exceptionnelles.</p>
-    <form id="budget-form" class="inline-form">
-      <label class="field"><span>Budget par cycle</span><input name="budget" inputmode="decimal" placeholder="0,00" value="${state.variableBudget ? fmtInput(state.variableBudget) : ''}"></label>
-      <button class="btn primary">Enregistrer</button>
+    <div class="block-head"><h2>Budgets du quotidien</h2></div>
+    <p class="hint">Combien tu prévois par cycle pour chaque catégorie. L'app découpe chaque budget en semaines du lundi au dimanche (ce cycle en compte ${budgetPeriod().n}). Laisse vide si tu ne veux pas de budget.</p>
+    <form id="catbudget-form">
+      <ul class="list">${dailyCats().map(c => {
+        const moy = pastCyclesWithData().length ? sum(pastCyclesWithData().map(pc => catSpentIn(pc, c.id))) / pastCyclesWithData().length : 0;
+        const v = state.catBudgets[c.id];
+        return `<li><label class="cat-budget">
+          ${bubble(c.color, c.emoji)}
+          <span class="row-main"><span class="row-title">${c.nom}</span><span class="row-sub">${c.desc}${moy > 0 ? `. Moyenne : ${money(moy)}` : ''}</span></span>
+          <span class="cb-input"><input name="${c.id}" inputmode="decimal" placeholder="0" value="${v ? fmtInput(v) : ''}" aria-label="Budget ${c.nom}"><span>€</span></span>
+        </label></li>`;
+      }).join('')}</ul>
+      <p class="hint" data-cb-total>${cbTotalText(dailyBudget())}</p>
+      <button class="btn primary">Enregistrer les budgets</button>
     </form>
-    ${avg !== null ? `<p class="hint">Ces derniers cycles, tu as dépensé en moyenne ${money(avg)} au quotidien.</p>` : ''}
   </section>
 
   <section class="block">
@@ -896,6 +989,11 @@ function renderPrev() {
   </details>`;
 }
 
+function cbTotalText(total) {
+  const n = budgetPeriod().n;
+  return total > 0 ? `Total : ${money(total)} par cycle, soit environ ${money(total / n)} par semaine.` : 'Aucun budget fixé pour le moment.';
+}
+
 function renderReglages() {
   const lien = `${location.origin}${location.pathname}#ajout?montant=12,50&commerce=Carrefour`;
   const st = S();
@@ -908,8 +1006,8 @@ function renderReglages() {
         <label class="field"><span>Jour du salaire</span><input type="number" name="cycleDay" min="1" max="28" inputmode="numeric" value="${cycleDay()}"></label>
         <label class="field"><span>Marge de sécurité</span><input name="margin" inputmode="decimal" placeholder="50,00" value="${fmtInput(st.margin)}"></label>
       </div>
-      <p class="hint">Si ton salaire arrive le 29, 30 ou 31, mets 28. La marge est l'argent que le plan d'épargne laisse toujours sur ton compte.</p>
-      <button class="btn primary">Enregistrer</button>
+      <p class="cycle-now">Cycle actuel : du ${shortDate(cycleAt(0).s)} au ${shortDate(cycleAt(0).e)}</p>
+      <p class="hint">Enregistré automatiquement. Si ton salaire arrive le 29, 30 ou 31, mets 28. La marge est l'argent que le plan d'épargne laisse toujours sur ton compte.</p>
     </form>
   </section>
 
@@ -953,9 +1051,15 @@ function renderReglages() {
   </section>
 
   <section class="block">
+    <div class="block-head"><h2>Application</h2></div>
+    <p class="hint">Version ${APP_VERSION}. Si l'app ne semble pas à jour, touche ce bouton ou tire l'écran vers le bas depuis le haut de la page. Tes données ne sont pas touchées.</p>
+    <button class="btn" data-act="refresh">Actualiser l'app</button>
+  </section>
+
+  <section class="block">
     <button class="btn danger" data-act="reset">Effacer toutes les données</button>
   </section>
-  <p class="foot">Mon budget, version 3. Aucune donnée ne quitte ton appareil.</p>`;
+  <p class="foot">Mon budget, version ${APP_VERSION}. Aucune donnée ne quitte ton appareil.</p>`;
 }
 
 const byDateDesc = (a, b) => b.date.localeCompare(a.date) || (b.created || 0) - (a.created || 0);
@@ -1171,6 +1275,7 @@ document.addEventListener('click', e => {
     case 'ops-prev': opsMonth = addMonths(opsMonth, -1); render(); break;
     case 'ops-next': if (opsMonth < monthKey()) { opsMonth = addMonths(opsMonth, 1); render(); } break;
     case 'export': exportData(); break;
+    case 'refresh': refreshApp(); break;
     case 'import': document.getElementById('import-file').click(); break;
     case 'close': sheet.close(); break;
     case 'delete-tx': {
@@ -1217,18 +1322,33 @@ document.addEventListener('submit', e => {
     state.variableBudget = isNaN(v) ? 0 : Math.abs(v);
     save(); render(); toast('Budget enregistré');
   } else if (f.id === 'cycle-form') {
-    const d = parseInt(f.elements.cycleDay.value, 10);
-    const m = parseNumber(f.elements.margin.value);
-    S().cycleDay = Math.min(28, Math.max(1, d || 1));
-    S().margin = isNaN(m) ? 0 : Math.abs(m);
-    save(); render(); toast('Cycle enregistré');
+    saveCycle(f);
+  } else if (f.id === 'catbudget-form') {
+    const nb = {};
+    dailyCats().forEach(c => {
+      const v = parseNumber(f.elements[c.id].value);
+      if (v > 0) nb[c.id] = Math.abs(v);
+    });
+    state.catBudgets = nb;
+    save(); render(); toast('Budgets enregistrés');
   } else if (f.id === 'tx-form') saveTx(f);
   else if (f.id === 'sav-form') saveSav(f);
   else if (f.id === 'plan-form') savePlan(f);
 });
 
+function saveCycle(f) {
+  const d = parseInt(f.elements.cycleDay.value, 10);
+  const m = parseNumber(f.elements.margin.value);
+  S().cycleDay = Math.min(28, Math.max(1, d || 1));
+  S().margin = isNaN(m) ? 0 : Math.abs(m);
+  save(); render();
+  const c = cycleAt(0);
+  toast(`Cycle : du ${shortDate(c.s)} au ${shortDate(c.e)}`);
+}
+
 document.addEventListener('change', e => {
   const el = e.target;
+  if (el.form && el.form.id === 'cycle-form') return saveCycle(el.form);
   if (el.id === 'import-file') return importData(el.files[0]);
   if (el.dataset.feature) {
     S().features[el.dataset.feature] = el.checked;
@@ -1265,6 +1385,11 @@ document.addEventListener('change', e => {
 
 document.addEventListener('input', e => {
   const el = e.target, f = el.form;
+  if (f && f.id === 'catbudget-form') {
+    const total = sum(dailyCats().map(c => Math.abs(parseNumber(f.elements[c.id].value)) || 0));
+    f.querySelector('[data-cb-total]').textContent = cbTotalText(total);
+    return;
+  }
   if (!f || !['tx-form', 'plan-form', 'sav-form'].includes(f.id)) return;
   if (el.name === 'amount') f.querySelector('.form-error').hidden = true;
   if (f.id === 'sav-form' || el.name !== 'label' || f.dataset.catTouched) return;
@@ -1292,6 +1417,59 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
+
+// Télécharge la dernière version de l'app (les données ne sont pas touchées)
+async function refreshApp() {
+  const el = document.getElementById('ptr');
+  try {
+    const r = await fetch('index.html', { cache: 'no-store' });
+    if (!r.ok) throw new Error('réseau');
+  } catch (e) {
+    state = load(); render();
+    el.classList.remove('on');
+    return toast('Pas de connexion : écran actualisé');
+  }
+  el.textContent = 'Actualisation…';
+  el.classList.add('on');
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.update().catch(() => {})));
+    }
+    if (window.caches) {
+      const ks = await caches.keys();
+      await Promise.all(ks.map(k => caches.delete(k)));
+    }
+  } catch (e) { /* on recharge quand même */ }
+  location.reload();
+}
+
+// Tirer l'écran vers le bas pour actualiser
+(function pullToRefresh() {
+  const el = document.getElementById('ptr');
+  let startY = null, dy = 0;
+  window.addEventListener('touchstart', e => {
+    startY = (!sheet.open && window.scrollY <= 0) ? e.touches[0].clientY : null;
+    dy = 0;
+  }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    if (startY === null) return;
+    dy = e.touches[0].clientY - startY;
+    if (dy > 15 && window.scrollY <= 0) {
+      el.classList.add('pull');
+      el.style.transform = `translate(-50%, ${Math.min(dy * 0.4, 60)}px)`;
+      el.textContent = dy > 120 ? '↻ Relâche pour actualiser' : '↓ Tire pour actualiser';
+    }
+  }, { passive: true });
+  window.addEventListener('touchend', () => {
+    if (startY === null) return;
+    const go = dy > 120;
+    startY = null;
+    el.classList.remove('pull');
+    el.style.transform = '';
+    if (go) refreshApp();
+  }, { passive: true });
+})();
 
 state = load();
 save();

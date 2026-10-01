@@ -491,3 +491,51 @@ input.switch:checked::after { transform: translateX(20px); }
 .calc dd { margin: 0; font: 600 15px var(--num); font-variant-numeric: tabular-nums; }
 .calc .calc-total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 9px; }
 .calc .calc-total dt { color: var(--ink); font-weight: 600; }
+
+/* Version 4 : budgets par semaine, actualisation */
+#ptr {
+  position: fixed; left: 50%; z-index: 40;
+  top: calc(env(safe-area-inset-top, 0px) - 44px);
+  transform: translate(-50%, 0);
+  background: var(--surface); color: var(--muted);
+  padding: 8px 14px; border-radius: 999px;
+  font-size: 14px; font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+  opacity: 0; pointer-events: none;
+  transition: transform 0.2s, opacity 0.2s;
+}
+#ptr.pull { opacity: 1; transition: none; }
+#ptr.on { opacity: 1; transform: translate(-50%, 60px); }
+.hint.top { margin: -6px 2px 12px; }
+.week-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  background: var(--surface); border-radius: 16px;
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.week-total span { color: var(--muted); font-size: 14px; }
+.week-total strong { font: 700 22px var(--num); font-variant-numeric: tabular-nums; color: var(--green); }
+.week-total strong.neg { color: var(--red); }
+.budget-row { padding: 12px 14px; }
+.budget-top { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.budget-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.budget-val { font: 600 14px var(--num); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.budget-sub { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.budget-sub.neg { color: var(--red); font-weight: 600; }
+.goal-bar.over i { background: var(--red); }
+.cat-budget { display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: text; }
+.cat-budget .row-sub { white-space: normal; }
+.cb-input { flex: none; display: flex; align-items: center; gap: 4px; }
+.cb-input input {
+  width: 78px; min-height: 40px; text-align: right;
+  font: 600 16px var(--num); color: var(--ink);
+  background: var(--raised); border: 1.5px solid transparent;
+  border-radius: 10px; padding: 8px 10px;
+  -webkit-appearance: none; appearance: none;
+}
+.cb-input input:focus { border-color: var(--blue); outline: none; }
+.cb-input span { color: var(--muted); font-weight: 600; }
+.cycle-now {
+  margin: 12px 0 0; padding: 10px 14px;
+  background: var(--surface); border-radius: 12px;
+  font-weight: 600;
+}
