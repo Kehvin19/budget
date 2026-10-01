@@ -28,10 +28,27 @@ const CATS = {
     { id: 'livret', nom: 'Livret A', emoji: '🐷', color: '#2F7D43' },
   ],
 };
-function catInfo(type, id) {
-  const list = CATS[type] || CATS.depense;
-  return list.find(c => c.id === id) || list[list.length - 1];
+// Catégories de l'utilisateur (modifiables), sinon celles par défaut
+function getCats(type) {
+  if (type === 'epargne') return CATS.epargne;
+  return (state && state.cats && state.cats[type]) || CATS[type] || CATS.depense;
 }
+const fallbackId = type => (type === 'revenu' ? 'autre-revenu' : 'autre');
+function catInfo(type, id) {
+  const list = getCats(type);
+  return list.find(c => c.id === id) || list.find(c => c.id === fallbackId(type)) || list[list.length - 1];
+}
+const PALETTE = ['#3F8A4F', '#E0822E', '#2E5E9E', '#D1A032', '#CF5F92', '#6E8FC9', '#B5527A', '#8A6D3B', '#2F9C93', '#5E7394', '#7A5BA8', '#C0392F', '#858B96'];
+
+// Les 3 façons de budgéter une catégorie
+const MODES = {
+  cycle:     { court: 'Par cycle', resume: 'par cycle, réparti par semaine',
+               aide: n => `Réparti sur les ${n} semaines du cycle. Si tu dépasses une semaine, les suivantes sont réduites. Si tu dépenses moins, elles augmentent.` },
+  semaine:   { court: 'Par semaine', resume: 'par semaine',
+               aide: n => `Le même montant chaque semaine (${n} semaines ce cycle). Un dépassement est repris sur les semaines suivantes.` },
+  enveloppe: { court: 'Enveloppe', resume: 'par cycle, sans découpage',
+               aide: () => 'Un montant pour tout le cycle, sans découpage par semaine. Idéal pour le coiffeur, les cadeaux, la santé.' },
+};
 
 const KINDS = {
   versement: { court: 'Je mets de côté', titre: 'Virement vers le livret', emoji: '🐷',
@@ -146,7 +163,7 @@ const fmtInput = n => (n === null || n === undefined || n === '') ? '' : Number(
    3. Données (stockées uniquement sur l'appareil)
    Le nom de rangement ne change pas : tes données sont gardées.
    ===================================================== */
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 const KEY = 'mon-budget-v1';
 const defaultSettings = () => ({
   cycleDay: 1,        // jour de début du cycle (jour du salaire)
@@ -158,7 +175,8 @@ const defaultState = () => ({
   version: 3,
   startBalance: null,
   variableBudget: 0,  // ancien budget global (remplacé par catBudgets)
-  catBudgets: {},     // budget par catégorie et par cycle, ex. { courses: 400 }
+  catBudgets: {},     // ex. { courses: { amount: 200, mode: 'cycle' } }
+  cats: null,         // catégories modifiables { depense: [...], revenu: [...] }
   transactions: [],   // {id, type, amount, label, cat, date, planId?, occ?}
   plans: [],          // {id, type, amount, label, cat, freq:'mois'|'unique', day, date, source, auto, since, lastDone, added}
   savings: { startBalance: null, ops: [] },
@@ -190,7 +208,18 @@ function normalize(d) {
   if (!s.catBudgets || typeof s.catBudgets !== 'object') {
     s.catBudgets = s.variableBudget > 0 ? { autre: s.variableBudget } : {};
   }
-  s.version = 4;
+  Object.keys(s.catBudgets).forEach(k => {
+    const b = s.catBudgets[k];
+    if (typeof b === 'number') s.catBudgets[k] = { amount: b, mode: 'cycle' };
+    if (!s.catBudgets[k] || !(s.catBudgets[k].amount > 0)) delete s.catBudgets[k];
+  });
+  if (!s.cats || !Array.isArray(s.cats.depense) || !Array.isArray(s.cats.revenu)) {
+    s.cats = { depense: JSON.parse(JSON.stringify(CATS.depense)), revenu: JSON.parse(JSON.stringify(CATS.revenu)) };
+  }
+  ['depense', 'revenu'].forEach(t => {
+    if (!s.cats[t].some(c => c.id === fallbackId(t))) s.cats[t].push(JSON.parse(JSON.stringify(CATS[t].find(c => c.id === fallbackId(t)))));
+  });
+  s.version = 6;
   return s;
 }
 function load() {
@@ -292,8 +321,32 @@ function avgVariable() {
   const cs = pastCyclesWithData();
   return cs.length ? sum(cs.map(varSpentIn)) / cs.length : null;
 }
-const dailyBudget = () => sum(Object.values(state.catBudgets || {}).map(Number).filter(n => n > 0));
-const dailyCats = () => CATS.depense.filter(c => c.quotidien);
+const dailyCats = () => getCats('depense').filter(c => c.quotidien);
+function budgetOf(id) {
+  const b = state.catBudgets[id];
+  return b && b.amount > 0 ? b : null;
+}
+function budgetTotal(id, n) {
+  const b = budgetOf(id);
+  if (!b) return 0;
+  return b.mode === 'semaine' ? b.amount * n : b.amount;
+}
+const dailyBudget = () => { const n = budgetPeriod().n; return sum(dailyCats().map(c => budgetTotal(c.id, n))); };
+
+// Où en est une catégorie : budget de la semaine (avec report) et du cycle
+function catStatus(c, bp) {
+  const b = budgetOf(c.id);
+  if (!b) return null;
+  const T = budgetTotal(c.id, bp.n);
+  const spentWeek = spentRange(c.id, bp.monS, bp.sunS);
+  const spentPeriod = spentRange(c.id, bp.startS, bp.endS);
+  if (b.mode === 'enveloppe') return { b, T, spentWeek, spentPeriod, reste: T - spentPeriod, over: spentPeriod > T + 0.005 };
+  const before = bp.idx > 0 ? spentRange(c.id, bp.startS, dayBefore(bp.monS)) : 0;
+  const left = bp.n - bp.idx;
+  const base = T / bp.n;
+  const allowance = Math.max(0, T - before) / left;
+  return { b, T, base, allowance, adjust: allowance - base, spentWeek, spentPeriod, reste: allowance - spentWeek, over: spentPeriod > T + 0.005 };
+}
 
 /* Semaines du lundi au dimanche. Une semaine appartient au cycle qui contient son lundi :
    si le cycle se termine un mardi, la semaine entière compte dans ce cycle. */
@@ -465,10 +518,14 @@ function conseils() {
   {
     const bp = budgetPeriod();
     for (const cat of dailyCats()) {
-      const wb = (state.catBudgets[cat.id] || 0) / bp.n;
-      const sp = spentRange(cat.id, bp.monS, bp.sunS);
-      if (wb > 0 && sp - wb >= 5) {
-        add('semaine', 85, cat.emoji, `${cat.nom} : ${money(sp)} dépensés cette semaine pour ${money(wb)} prévus. Lève le pied jusqu'à dimanche, ou pioche dans une autre catégorie.`);
+      const st = catStatus(cat, bp);
+      if (!st) continue;
+      if (st.over) {
+        add('semaine', 95, '⛔', `${cat.nom} : tu es hors budget, avec ${money(st.spentPeriod - st.T)} de plus que prévu sur ce cycle.`);
+        break;
+      }
+      if (st.b.mode !== 'enveloppe' && st.reste < -1) {
+        add('semaine', 85, cat.emoji, `${cat.nom} : ${money(-st.reste)} de plus que prévu cette semaine. Tes prochaines semaines sont réduites d'autant.`);
         break;
       }
     }
@@ -488,7 +545,7 @@ function conseils() {
 
   const past = pastCyclesWithData();
   if (past.length && day >= 10) {
-    for (const cat of CATS.depense) {
+    for (const cat of getCats('depense')) {
       const now$ = catSpentIn(c, cat.id);
       const moy = sum(past.map(pc => catSpentIn(pc, cat.id))) / past.length;
       if (moy > 0 && now$ > moy * 1.3 && now$ - moy > 20) {
@@ -605,7 +662,7 @@ function donut(txs) {
   const dep = txs.filter(t => t.type === 'depense');
   const total = sum(dep.map(t => t.amount));
   if (!total) return `<p class="empty">Aucune dépense pour l'instant.</p>`;
-  const parts = CATS.depense
+  const parts = getCats('depense')
     .map(c => ({ c, v: sum(dep.filter(t => catInfo('depense', t.cat).id === c.id).map(t => t.amount)) }))
     .filter(p => p.v > 0)
     .sort((a, b) => b.v - a.v);
@@ -650,7 +707,7 @@ function seg(name, value, options, label) {
     `<label><input class="sr" type="radio" name="${name}" value="${v}" ${value === v ? 'checked' : ''}><span>${txt}</span></label>`).join('')}</div>`;
 }
 function chips(type, selected) {
-  const list = CATS[type];
+  const list = getCats(type);
   const sel = list.some(c => c.id === selected) ? selected : list[0].id;
   return list.map(c => `<label style="--c:${c.color}"><input class="sr" type="radio" name="cat" value="${c.id}" ${c.id === sel ? 'checked' : ''}><span>${c.emoji} ${c.nom}</span></label>`).join('');
 }
@@ -699,7 +756,7 @@ function planBlock() {
         </div>
       </div>
       ${(() => {
-        const avec = dailyCats().filter(c => (state.catBudgets[c.id] || 0) > 0);
+        const avec = dailyCats().filter(c => budgetOf(c.id));
         if (avec.length >= 4) return '';
         return `<p class="plan-warn">${avec.length
           ? `Ton budget du quotidien ne compte que : ${avec.map(c => c.nom.toLowerCase()).join(', ')}. Les restos, le transport, les sorties… ne sont pas déduits, donc ce plan est trop optimiste.`
@@ -723,37 +780,86 @@ function planBlock() {
 }
 
 function weekBlock() {
-  const b = state.catBudgets;
   const bp = budgetPeriod();
   const head = `<div class="block-head"><h2>Cette semaine</h2></div>
     <p class="hint top">Semaine ${bp.idx + 1} sur ${bp.n}, du ${shortDate(bp.monS)} au ${shortDate(bp.sunS)}</p>`;
-  const cats = dailyCats().filter(c => (b[c.id] || 0) > 0);
-  if (!cats.length) {
+  const items = dailyCats().map(c => ({ c, st: catStatus(c, bp) })).filter(x => x.st);
+  if (!items.length) {
     return `<section class="block">${head}
       <div class="empty"><p style="margin:0 0 12px">Fixe un budget par catégorie (courses, sorties…) : l'app le découpe en semaines pour te dire ce qu'il te reste.</p>
       <button class="btn small" data-view="prev">Fixer mes budgets</button></div></section>`;
   }
-  let totB = 0, totS = 0;
-  const rows = cats.map(c => {
-    const wb = b[c.id] / bp.n;
-    const sp = spentRange(c.id, bp.monS, bp.sunS);
-    totB += wb; totS += sp;
-    const reste = wb - sp;
-    const pct = Math.min(100, wb ? sp / wb * 100 : 0);
-    return `<li class="budget-row">
-      <div class="budget-top"><span class="budget-name">${c.emoji} ${c.nom}</span><span class="budget-val">${money(sp)} / ${money(wb)}</span></div>
-      <div class="goal-bar ${reste < 0 ? 'over' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div>
-      <p class="budget-sub ${reste < 0 ? 'neg' : ''}">${reste >= 0 ? `Reste ${money(reste)}` : `Dépassé de ${money(-reste)}`}</p>
+  const hors = items.filter(x => x.st.over);
+  const hebdo = items.filter(x => x.st.b.mode !== 'enveloppe');
+  const env = items.filter(x => x.st.b.mode === 'enveloppe');
+  const resteSemaine = sum(hebdo.map(x => x.st.reste));
+
+  const hebdoRow = ({ c, st }) => {
+    const pct = st.allowance > 0 ? Math.min(100, st.spentWeek / st.allowance * 100) : (st.spentWeek > 0 ? 100 : 0);
+    let sub;
+    if (st.over) sub = `<span class="neg">Hors budget : ${money(st.spentPeriod - st.T)} de plus que prévu sur le cycle</span>`;
+    else if (st.reste < 0) sub = `<span class="neg">Dépassé de ${money(-st.reste)} cette semaine : les semaines suivantes sont réduites</span>`;
+    else sub = `Reste ${money(st.reste)}`;
+    const report = Math.abs(st.adjust) >= 0.5 && !st.over
+      ? `<p class="budget-sub">${st.adjust > 0 ? `+ ${money(st.adjust)} reportés des semaines passées` : `− ${money(-st.adjust)} à cause des semaines passées`} (prévu au départ : ${money(st.base)})</p>` : '';
+    return `<li class="budget-row ${st.over ? 'is-over' : ''}">
+      <div class="budget-top"><span class="budget-name">${c.emoji} ${esc(c.nom)}</span><span class="budget-val">${money(st.spentWeek)} / ${money(st.allowance)}</span></div>
+      <div class="goal-bar ${st.reste < 0 || st.over ? 'over' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div>
+      <p class="budget-sub">${sub}</p>${report}
     </li>`;
-  }).join('');
-  const sansBudget = dailyCats().filter(c => !(b[c.id] > 0)).map(c => ({ c, sp: spentRange(c.id, bp.monS, bp.sunS) })).filter(x => x.sp > 0);
-  const totPeriode = sum(cats.map(c => spentRange(c.id, bp.startS, bp.endS)));
-  const budPeriode = sum(cats.map(c => b[c.id]));
+  };
+  const envRow = ({ c, st }) => {
+    const pct = st.T > 0 ? Math.min(100, st.spentPeriod / st.T * 100) : 0;
+    return `<li class="budget-row ${st.over ? 'is-over' : ''}">
+      <div class="budget-top"><span class="budget-name">${c.emoji} ${esc(c.nom)}</span><span class="budget-val">${money(st.spentPeriod)} / ${money(st.T)}</span></div>
+      <div class="goal-bar ${st.over ? 'over' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div>
+      <p class="budget-sub">${st.over ? `<span class="neg">Hors budget : ${money(st.spentPeriod - st.T)} de plus que prévu</span>` : `Reste ${money(st.reste)} sur le cycle`}</p>
+    </li>`;
+  };
+
+  // Dépenses programmées cette semaine
+  const prog = pendingIn(cycleAt(0)).concat(pendingIn(cycleAt(1)))
+    .filter(x => x.p.freq === 'unique' && x.p.type === 'depense' && x.occ >= bp.monS && x.occ <= bp.sunS);
+  const sansBudget = dailyCats().filter(c => !budgetOf(c.id))
+    .map(c => ({ c, sp: spentRange(c.id, bp.monS, bp.sunS) })).filter(x => x.sp > 0);
+
   return `<section class="block">${head}
-    <div class="week-total"><span>Reste cette semaine</span><strong class="${totB - totS < 0 ? 'neg' : ''}">${money(totB - totS)}</strong></div>
-    <ul class="list budgets">${rows}</ul>
-    ${sansBudget.length ? `<p class="hint">Sans budget : ${sansBudget.map(x => `${x.c.emoji} ${x.c.nom} ${money(x.sp)}`).join(', ')}.</p>` : ''}
-    <p class="hint">Sur tout le cycle (du ${shortDate(bp.startS)} au ${shortDate(bp.endS)}) : ${money(totPeriode)} dépensés sur ${money(budPeriode)} prévus.</p>
+    ${hors.length ? `<div class="over-banner">⛔ Hors budget prévisionnel : ${hors.map(x => `${esc(x.c.nom)} (+ ${money(x.st.spentPeriod - x.st.T)})`).join(', ')}</div>` : ''}
+    ${hebdo.length ? `<div class="week-total"><span>Reste cette semaine</span><strong class="${resteSemaine < 0 ? 'neg' : ''}">${money(resteSemaine)}</strong></div>
+    <ul class="list budgets">${hebdo.map(hebdoRow).join('')}</ul>` : ''}
+    ${env.length ? `<h3 class="day">Enveloppes du cycle</h3><ul class="list budgets">${env.map(envRow).join('')}</ul>` : ''}
+    ${prog.length ? `<h3 class="day">Programmé cette semaine</h3><ul class="list">${prog.map(x => {
+      const c = catInfo('depense', x.p.cat);
+      return `<li><button class="row" data-act="edit-plan" data-id="${x.p.id}">${bubble(c.color, c.emoji)}<span class="row-main"><span class="row-title">${esc(x.p.label || c.nom)}</span><span class="row-sub">${cap(shortDate(x.occ))}</span></span><span class="row-amount">${signedMoney(-x.p.amount)}</span></button></li>`;
+    }).join('')}</ul>` : ''}
+    ${sansBudget.length ? `<p class="hint">Sans budget cette semaine : ${sansBudget.map(x => `${x.c.emoji} ${esc(x.c.nom)} ${money(x.sp)}`).join(', ')}.</p>` : ''}
+  </section>`;
+}
+
+// À confirmer : les prévisions dont le jour est arrivé
+function confirmBlock() {
+  const today = todayStr();
+  const xs = pendingIn(cycleAt(-1)).filter(x => x.p.freq === 'unique')
+    .concat(pendingIn(cycleAt(0)))
+    .filter(x => !x.p.auto && x.occ <= today);
+  if (!xs.length) return '';
+  return `<section class="block">
+    <div class="block-head"><h2>À confirmer</h2></div>
+    <ul class="list confirm">${xs.map(({ p, occ }) => {
+      const c = catInfo(p.type, p.cat);
+      const quand = occ === today ? "Prévu aujourd'hui" : occ === dayBefore(today) ? 'Prévu hier' : `Prévu le ${shortDate(occ)}`;
+      return `<li class="row">
+        ${bubble(c.color, c.emoji)}
+        <span class="row-main"><span class="row-title">${esc(p.label || c.nom)}</span><span class="row-sub">${quand}, ${planEffectText(p)}</span></span>
+        <span class="row-actions">
+          ${p.freq === 'unique'
+            ? `<button class="btn small ghost" data-act="edit-plan" data-id="${p.id}">Reporter</button>`
+            : `<button class="btn small ghost" data-act="plan-skip" data-id="${p.id}" data-occ="${occ}">Ignorer</button>`}
+          <button class="btn small primary" data-act="plan-confirm" data-id="${p.id}" data-occ="${occ}">C'est fait</button>
+        </span>
+      </li>`;
+    }).join('')}</ul>
+    <p class="hint">Touche « C'est fait » pour l'enregistrer. Tu pourras corriger le montant réel.</p>
   </section>`;
 }
 
@@ -768,6 +874,7 @@ function renderMois() {
   const day = Math.round((parseDate(todayStr()) - c.start) / 864e5) + 1;
   const daysLeft = total - day + 1;
   const pending = pendingIn(c);
+  const futurs = pending.filter(x => x.p.auto || x.occ > todayStr());
   const pendNet = sum(pending.map(x => signed(x.p)));
   const bal = balance();
   const dispo = bal + pendNet;
@@ -823,12 +930,13 @@ function renderMois() {
   </section>
   ${livret}
   ${rappel}
+  ${confirmBlock()}
   ${on('planEpargne') ? planBlock() : ''}
   ${on('semaine') ? weekBlock() : ''}
   <section class="block">
     <div class="block-head"><h2>À venir d'ici le ${shortDate(c.e)}</h2><button class="link" data-act="add-plan" data-freq="unique">Ajouter</button></div>
-    ${pending.length
-      ? `<ul class="list">${pending.map(pendingRow).join('')}</ul>
+    ${futurs.length
+      ? `<ul class="list">${futurs.map(pendingRow).join('')}</ul>
          <p class="hint">Un cadeau, une réparation, une sortie prévue ? Touche « Ajouter » pour l'inclure dans ton plan.</p>`
       : `<p class="empty">Rien de prévu d'ici le ${shortDate(c.e)}. Un cadeau, une réparation ? Touche « Ajouter ».</p>`}
   </section>
@@ -994,28 +1102,27 @@ function renderPrev() {
   </section>
 
   <section class="block">
-    <div class="block-head"><h2>Budgets du quotidien</h2></div>
-    <p class="hint">Combien tu prévois par cycle pour chaque catégorie. L'app découpe chaque budget en semaines du lundi au dimanche (ce cycle en compte ${budgetPeriod().n}). Laisse vide si tu ne veux pas de budget.</p>
-    <form id="catbudget-form">
-      <ul class="list">${dailyCats().map(c => {
-        const moy = pastCyclesWithData().length ? sum(pastCyclesWithData().map(pc => catSpentIn(pc, c.id))) / pastCyclesWithData().length : 0;
-        const v = state.catBudgets[c.id];
-        return `<li><label class="cat-budget">
-          ${bubble(c.color, c.emoji)}
-          <span class="row-main"><span class="row-title">${c.nom}</span><span class="row-sub">${c.desc}${moy > 0 ? `. Moyenne : ${money(moy)}` : ''}</span></span>
-          <span class="cb-input"><input name="${c.id}" inputmode="decimal" placeholder="0" value="${v ? fmtInput(v) : ''}" aria-label="Budget ${c.nom}"><span>€</span></span>
-        </label></li>`;
-      }).join('')}</ul>
-      <p class="hint" data-cb-total>${cbTotalText(dailyBudget())}</p>
-      <button class="btn primary">Enregistrer les budgets</button>
-    </form>
+    <div class="block-head"><h2>Budgets du quotidien</h2><button class="link" data-view="cats">Catégories</button></div>
+    <p class="hint top">Touche une catégorie pour fixer son budget : par cycle, par semaine ou en enveloppe.</p>
+    <ul class="list">${dailyCats().map(c => {
+      const b = budgetOf(c.id);
+      const cs = pastCyclesWithData();
+      const moy = cs.length ? sum(cs.map(pc => catSpentIn(pc, c.id))) / cs.length : 0;
+      return `<li><button class="row" data-act="edit-budget" data-id="${c.id}">
+        ${bubble(c.color, c.emoji)}
+        <span class="row-main"><span class="row-title">${esc(c.nom)}</span>
+          <span class="row-sub">${b ? `${money(b.amount)} ${MODES[b.mode].resume}` : 'Pas de budget'}${moy > 0 ? `. Moyenne : ${money(moy)}` : ''}</span></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button></li>`;
+    }).join('')}</ul>
+    <p class="hint">${cbTotalText(dailyBudget())}</p>
   </section>
 
   <section class="block">
-    <div class="block-head"><h2>Exceptionnel</h2><button class="link" data-act="add-plan" data-freq="unique">Ajouter</button></div>
+    <div class="block-head"><h2>Programmé et exceptionnel</h2><button class="link" data-act="add-plan" data-freq="unique">Ajouter</button></div>
     ${uniques.length
       ? `<ul class="list">${uniques.map(planRow).join('')}</ul>`
-      : `<p class="empty">Des cadeaux d'anniversaire, une ampoule à racheter, un voyage, une prime ? Ajoute-les ici : ton plan d'épargne en tiendra compte.</p>`}
+      : `<p class="empty">Un rendez-vous chez le coiffeur, des cadeaux, une ampoule, une prime ? Ajoute-les ici, ou mets une date future dans le bouton +. L'app te demandera de confirmer le jour J.</p>`}
   </section>
 
   <details class="block">
@@ -1027,6 +1134,25 @@ function renderPrev() {
 function cbTotalText(total) {
   const n = budgetPeriod().n;
   return total > 0 ? `Total : ${money(total)} par cycle, soit environ ${money(total / n)} par semaine.` : 'Aucun budget fixé pour le moment.';
+}
+
+function renderCats() {
+  const row = t => c => `<li><button class="row" data-act="edit-cat" data-type="${t}" data-id="${c.id}">
+      ${bubble(c.color, c.emoji)}
+      <span class="row-main"><span class="row-title">${esc(c.nom)}</span>
+      <span class="row-sub">${t === 'revenu' ? 'Revenu' : c.quotidien ? 'Dépense du quotidien (avec budget possible)' : 'Dépense fixe ou ponctuelle'}</span></span>
+      <span class="chev" aria-hidden="true">›</span></button></li>`;
+  return `<header class="page-head"><h1>Catégories</h1>
+    <button class="icon-btn big" data-view="prev" aria-label="Retour">‹</button></header>
+  <section class="block">
+    <div class="block-head"><h2>Dépenses</h2><button class="link" data-act="add-cat" data-type="depense">Ajouter</button></div>
+    <ul class="list">${getCats('depense').map(row('depense')).join('')}</ul>
+  </section>
+  <section class="block">
+    <div class="block-head"><h2>Revenus</h2><button class="link" data-act="add-cat" data-type="revenu">Ajouter</button></div>
+    <ul class="list">${getCats('revenu').map(row('revenu')).join('')}</ul>
+  </section>
+  <p class="hint">Si tu supprimes une catégorie, ses opérations passent dans « ${esc(catInfo('depense', 'autre').nom)} ».</p>`;
 }
 
 function renderReglages() {
@@ -1055,6 +1181,12 @@ function renderReglages() {
     <summary>Choisir les conseils</summary>
     <ul class="list">${TIP_TYPES.map(([k, t]) => switchRow('data-tip', k, t, '', tipOn(k))).join('')}</ul>
   </details>` : ''}
+
+  <section class="block">
+    <div class="block-head"><h2>Catégories</h2></div>
+    <p class="hint top">Crée, renomme ou supprime tes catégories de dépenses et de revenus.</p>
+    <button class="btn" data-view="cats">Gérer les catégories</button>
+  </section>
 
   <section class="block">
     <div class="block-head"><h2>Soldes de départ</h2></div>
@@ -1105,7 +1237,7 @@ const sheet = document.getElementById('sheet');
 function render() {
   applyAuto();
   autoLink();
-  const screens = { mois: renderMois, ops: renderOps, epargne: renderEpargne, prev: renderPrev, reglages: renderReglages };
+  const screens = { mois: renderMois, ops: renderOps, epargne: renderEpargne, prev: renderPrev, reglages: renderReglages, cats: renderCats };
   $view.innerHTML = (screens[view] || renderMois)();
   document.querySelectorAll('.tabbar [data-view]').forEach(b =>
     b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
@@ -1128,13 +1260,14 @@ function openTxForm(tx = null, prefill = null) {
   const d = tx || prefill || {};
   const type = d.type || 'depense';
   const hasAmount = d.amount !== undefined && d.amount !== '' && !isNaN(d.amount);
-  sheet.innerHTML = `<form id="tx-form" class="sheet-body" data-edit="${tx ? tx.id : ''}" autocomplete="off">
+  sheet.innerHTML = `<form id="tx-form" class="sheet-body" data-edit="${tx ? tx.id : ''}" data-plan="${d.planId || ''}" data-occ="${d.occ || ''}" autocomplete="off">
     ${sheetHead(tx ? "Modifier l'opération" : 'Nouvelle opération')}
     ${seg('type', type, [['depense', 'Dépense'], ['revenu', 'Revenu']], 'Type')}
     ${amountField(hasAmount ? fmtInput(d.amount) : '', !tx && !hasAmount)}
     <label class="field"><span>Libellé</span><input name="label" maxlength="60" placeholder="Ex. Carrefour, cinéma, loyer" value="${esc(d.label || '')}"></label>
     <fieldset class="cats"><legend>Catégorie</legend><div class="chips" data-chips>${chips(type, d.cat)}</div></fieldset>
     <label class="field"><span>Date</span><input type="date" name="date" value="${d.date || todayStr()}" required></label>
+    <p class="hint future-hint" data-future ${(d.date || todayStr()) > todayStr() && !tx ? '' : 'hidden'}>📅 Date future : la dépense sera programmée et l'app te demandera de la confirmer le jour J.</p>
     ${actions('delete-tx', tx && tx.id)}
   </form>`;
   sheet.showModal();
@@ -1180,6 +1313,77 @@ function openPlanForm(p = null, freq = 'mois', type = 'depense', source = 'moi')
   sheet.showModal();
 }
 
+function openBudgetForm(id) {
+  const c = catInfo('depense', id);
+  const b = budgetOf(id) || { amount: '', mode: 'cycle' };
+  const n = budgetPeriod().n;
+  sheet.innerHTML = `<form id="budget-cat-form" class="sheet-body" data-cat="${c.id}" autocomplete="off">
+    ${sheetHead(`${c.emoji} ${esc(c.nom)}`)}
+    ${seg('mode', b.mode, Object.entries(MODES).map(([k, m]) => [k, m.court]), 'Type de budget')}
+    <p class="hint center" data-mode-help>${MODES[b.mode].aide(n)}</p>
+    ${amountField(b.amount ? fmtInput(b.amount) : '', !b.amount)}
+    <p class="hint center" data-amount-unit>${b.mode === 'semaine' ? 'par semaine' : 'par cycle'}</p>
+    <div class="sheet-actions">
+      ${budgetOf(id) ? `<button type="button" class="btn danger" data-act="delete-budget" data-id="${c.id}">Retirer</button>` : ''}
+      <button class="btn primary grow" type="submit">Enregistrer</button>
+    </div>
+  </form>`;
+  sheet.showModal();
+}
+
+function openCatForm(type, cat = null) {
+  const d = cat || { nom: '', emoji: type === 'revenu' ? '💶' : '🏷️', color: PALETTE[0], quotidien: true };
+  const fixe = cat && cat.id === fallbackId(type);
+  sheet.innerHTML = `<form id="cat-form" class="sheet-body" data-type="${type}" data-edit="${cat ? cat.id : ''}" autocomplete="off">
+    ${sheetHead(cat ? 'Modifier la catégorie' : 'Nouvelle catégorie')}
+    <div class="cat-preview" data-preview style="--c:${d.color}"><span class="bubble" style="background:${d.color}24">${d.emoji}</span><strong>${esc(d.nom) || 'Ma catégorie'}</strong></div>
+    <div class="field-pair narrow">
+      <label class="field"><span>Emoji</span><input name="emoji" maxlength="4" value="${esc(d.emoji)}"></label>
+      <label class="field"><span>Nom</span><input name="nom" maxlength="30" required placeholder="Ex. Coiffeur, Animaux" value="${esc(d.nom)}"></label>
+    </div>
+    <fieldset class="cats"><legend>Couleur</legend><div class="swatches">${PALETTE.map(col =>
+      `<label><input class="sr" type="radio" name="color" value="${col}" ${col === d.color ? 'checked' : ''}><span style="background:${col}" aria-label="Couleur ${col}"></span></label>`).join('')}</div></fieldset>
+    ${type === 'depense' ? `<label class="switch-row boxed">
+      <span class="row-main"><span class="row-title">Dépense du quotidien</span><span class="row-sub">Apparaît dans tes budgets de la semaine</span></span>
+      <input type="checkbox" class="switch" role="switch" name="quotidien" ${d.quotidien ? 'checked' : ''}>
+    </label>` : ''}
+    <div class="sheet-actions">
+      ${cat && !fixe ? `<button type="button" class="btn danger" data-act="delete-cat" data-type="${type}" data-id="${cat.id}">Supprimer</button>` : ''}
+      <button class="btn primary grow" type="submit">Enregistrer</button>
+    </div>
+  </form>`;
+  sheet.showModal();
+}
+
+function saveCat(f) {
+  const type = f.dataset.type, id = f.dataset.edit, el = f.elements;
+  const nom = el.nom.value.trim();
+  if (!nom) { el.nom.focus(); return; }
+  const data = {
+    nom,
+    emoji: el.emoji.value.trim() || '🏷️',
+    color: (f.querySelector('input[name=color]:checked') || {}).value || PALETTE[0],
+  };
+  if (type === 'depense') data.quotidien = el.quotidien.checked;
+  const list = state.cats[type];
+  if (id) Object.assign(list.find(c => c.id === id), data);
+  else list.splice(Math.max(0, list.findIndex(c => c.id === fallbackId(type))), 0, { id: 'c-' + uid(), ...data });
+  save(); sheet.close(); render();
+  toast(id ? 'Catégorie modifiée' : 'Catégorie ajoutée');
+}
+
+function deleteCat(type, id) {
+  if (id === fallbackId(type)) return;
+  const c = catInfo(type, id), dest = catInfo(type, fallbackId(type));
+  if (!confirm(`Supprimer « ${c.nom} » ? Ses opérations passeront dans « ${dest.nom} ».`)) return;
+  state.cats[type] = state.cats[type].filter(x => x.id !== id);
+  state.transactions.forEach(t => { if (t.type === type && t.cat === id) t.cat = dest.id; });
+  state.plans.forEach(p => { if (p.type === type && p.cat === id) p.cat = dest.id; });
+  if (type === 'depense') delete state.catBudgets[id];
+  save(); sheet.close(); render();
+  toast('Catégorie supprimée');
+}
+
 function formError(f, msg) {
   const el = f.querySelector('.form-error');
   el.textContent = msg;
@@ -1194,6 +1398,20 @@ function saveTx(f) {
   if (!amount) return formError(f, 'Indique un montant, par exemple 12,50');
   const data = { type: el.type.value, amount, label: el.label.value.trim(), cat: checkedCat(f), date: el.date.value || todayStr() };
   const id = f.dataset.edit;
+  // Nouvelle opération avec une date future : on la programme
+  if (!id && !f.dataset.plan && data.date > todayStr()) {
+    state.plans.push({ id: uid(), type: data.type, amount, label: data.label, cat: data.cat, freq: 'unique', date: data.date, day: 1, auto: false, lastDone: null, added: false });
+    save(); sheet.close(); render();
+    return toast(`Programmée pour le ${shortDate(data.date)}`);
+  }
+  // Confirmation d'une prévision (« C'est fait »)
+  if (!id && f.dataset.plan) {
+    const p = state.plans.find(x => x.id === f.dataset.plan);
+    if (p) {
+      data.planId = p.id; data.occ = f.dataset.occ;
+      if (p.freq === 'mois') p.lastDone = f.dataset.occ; else p.added = true;
+    }
+  }
   if (id) Object.assign(state.transactions.find(t => t.id === id), data);
   else state.transactions.push({ id: uid(), created: Date.now(), ...data });
   save(); sheet.close();
@@ -1309,6 +1527,21 @@ document.addEventListener('click', e => {
     case 'add-plan': openPlanForm(null, t.dataset.freq, t.dataset.type, t.dataset.source); break;
     case 'edit-plan': openPlanForm(state.plans.find(x => x.id === id)); break;
     case 'plan-done': markPlanDone(id, t.dataset.occ); break;
+    case 'plan-confirm': {
+      const p = state.plans.find(x => x.id === id);
+      if (!p) break;
+      if (p.type === 'epargne') { markPlanDone(id, t.dataset.occ); break; }
+      openTxForm(null, { type: p.type, amount: p.amount, label: p.label, cat: p.cat, date: todayStr(), planId: p.id, occ: t.dataset.occ });
+      break;
+    }
+    case 'edit-budget': openBudgetForm(id); break;
+    case 'delete-budget':
+      delete state.catBudgets[id];
+      save(); sheet.close(); render(); toast('Budget retiré');
+      break;
+    case 'add-cat': openCatForm(t.dataset.type); break;
+    case 'edit-cat': openCatForm(t.dataset.type, getCats(t.dataset.type).find(c => c.id === id)); break;
+    case 'delete-cat': deleteCat(t.dataset.type, id); break;
     case 'plan-skip': skipPlan(id, t.dataset.occ); break;
     case 'ops-prev': opsMonth = addMonths(opsMonth, -1); render(); break;
     case 'ops-next': if (opsMonth < monthKey()) { opsMonth = addMonths(opsMonth, 1); render(); } break;
@@ -1369,7 +1602,13 @@ document.addEventListener('submit', e => {
     });
     state.catBudgets = nb;
     save(); render(); toast('Budgets enregistrés');
-  } else if (f.id === 'tx-form') saveTx(f);
+  } else if (f.id === 'budget-cat-form') {
+    const v = Math.abs(parseNumber(f.elements.amount.value));
+    if (!v) return formError(f, 'Indique un montant, par exemple 200');
+    state.catBudgets[f.dataset.cat] = { amount: v, mode: f.elements.mode.value };
+    save(); sheet.close(); render(); toast('Budget enregistré');
+  } else if (f.id === 'cat-form') saveCat(f);
+  else if (f.id === 'tx-form') saveTx(f);
   else if (f.id === 'sav-form') saveSav(f);
   else if (f.id === 'plan-form') savePlan(f);
 });
@@ -1417,12 +1656,31 @@ document.addEventListener('change', e => {
     if (el.value === 'proches') f.elements.auto.checked = true;
   }
   if (el.name === 'kind') f.querySelector('[data-kind-help]').textContent = KINDS[el.value].aide;
+  if (el.name === 'mode' && f.id === 'budget-cat-form') {
+    f.querySelector('[data-mode-help]').textContent = MODES[el.value].aide(budgetPeriod().n);
+    f.querySelector('[data-amount-unit]').textContent = el.value === 'semaine' ? 'par semaine' : 'par cycle';
+  }
+  if (el.name === 'date' && f.id === 'tx-form') {
+    const fh = f.querySelector('[data-future]');
+    if (fh) fh.hidden = !(el.value > todayStr()) || !!f.dataset.edit || !!f.dataset.plan;
+  }
+  if (f.id === 'cat-form' && (el.name === 'color')) updateCatPreview(f);
   if (el.name === 'cat') f.dataset.catTouched = '1';
   if (el.name === 'freq') f.querySelectorAll('[data-for]').forEach(x => { x.hidden = x.dataset.for !== el.value; });
 });
 
+function updateCatPreview(f) {
+  const pv = f.querySelector('[data-preview]');
+  const col = (f.querySelector('input[name=color]:checked') || {}).value || PALETTE[0];
+  pv.querySelector('.bubble').style.background = col + '24';
+  pv.querySelector('.bubble').textContent = f.elements.emoji.value || '🏷️';
+  pv.querySelector('strong').textContent = f.elements.nom.value || 'Ma catégorie';
+}
+
 document.addEventListener('input', e => {
   const el = e.target, f = el.form;
+  if (f && f.id === 'cat-form') return updateCatPreview(f);
+  if (f && f.id === 'budget-cat-form' && el.name === 'amount') { f.querySelector('.form-error').hidden = true; return; }
   if (f && f.id === 'catbudget-form') {
     const total = sum(dailyCats().map(c => Math.abs(parseNumber(f.elements[c.id].value)) || 0));
     f.querySelector('[data-cb-total]').textContent = cbTotalText(total);
