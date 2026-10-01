@@ -12,6 +12,8 @@
   --green: #2F7D43;
   --red: #C0392F;
   --red-soft: #F8E1DE;
+  --save: #2F6B45;
+  --save-bar: #3F8A4F;
   --num: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
   --text: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
   color-scheme: light dark;
@@ -32,6 +34,8 @@
     --green: #6CC382;
     --red: #F0766B;
     --red-soft: #3A1F24;
+    --save: #1E4A31;
+    --save-bar: #6CC382;
   }
 }
 html { scroll-padding-top: env(safe-area-inset-top, 0px); }
@@ -53,6 +57,7 @@ main {
 :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 
 /* Titres */
+.page-head { display: flex; justify-content: space-between; align-items: center; }
 .page-head h1 {
   font: 700 30px/1.15 var(--num);
   letter-spacing: -0.01em;
@@ -411,3 +416,29 @@ dialog.sheet[open] { animation: monte 0.22s ease-out; }
   white-space: nowrap;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Version 2 : épargne, conseils */
+.hero.save { background: var(--save); }
+.chart.save .bar { fill: var(--save-bar); }
+.icon-btn.big { width: 40px; height: 40px; display: grid; place-items: center; background: var(--surface); }
+.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.mini-card {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; margin: -12px 0 28px; padding: 12px 14px;
+  background: var(--surface); color: inherit;
+  border: 0; border-radius: 18px;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.mini-card:active { background: var(--raised); }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tips li { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border-radius: 16px; padding: 14px; }
+.tips p { margin: 0; font-size: 15px; }
+.tip-emoji { font-size: 22px; line-height: 1.2; flex: none; }
+.more summary { cursor: pointer; color: var(--blue); font-weight: 600; font-size: 15px; padding: 10px 2px; }
+.goal { background: var(--surface); border-radius: 18px; padding: 16px; }
+.goal p { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+.goal-bar { height: 12px; border-radius: 6px; background: var(--raised); overflow: hidden; }
+.goal-bar i { display: block; height: 100%; background: var(--save-bar); border-radius: 6px; }
+.seg.grid2 { grid-auto-flow: row; grid-template-columns: 1fr 1fr; gap: 3px; margin-bottom: 6px; }
+.seg.grid2 span { font-size: 14px; padding: 10px 6px; }
+.hint.center { text-align: center; min-height: 2.8em; margin: 6px 8px 0; }
