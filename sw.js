@@ -1,6 +1,7 @@
 // Permet à l'app de fonctionner sans connexion.
-// Quand tu modifies l'app, change le numéro de version ci-dessous.
-const CACHE = 'budget-v2';
+// Quand tu modifies l'app, change le numéro de version ci-dessous
+// (et le ?v= dans index.html).
+const CACHE = 'budget-v3';
 const FICHIERS = ['./', './index.html', './style.css', './app.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
@@ -21,7 +22,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' }) // toujours vérifier s'il y a une nouvelle version
       .then(res => {
         if (res.ok) { const copie = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copie)); }
         return res;
